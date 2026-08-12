@@ -44,3 +44,37 @@ def commit(message: str):
 
     print(f"Committed as {commit_hash}")
     return commit_hash
+def log():
+    head_path = os.path.join(MINIGIT_DIR, "HEAD")
+    if not os.path.exists(head_path):
+        print("No commits yet.")
+        return
+
+    with open(head_path, "r") as f:
+        current_hash = f.read().strip()
+
+    commits = []
+    while current_hash:
+        commit_content = read_object(current_hash, MINIGIT_DIR).decode()
+        commits.append((current_hash, commit_content))
+
+        lines = commit_content.split("\n")
+        parent_line = lines[1]  # "parent <hash>" or "parent "
+        parent_hash = parent_line[len("parent "):].strip()
+        current_hash = parent_hash
+
+        # your code: extract the parent hash from commit_content
+        # (it's on the line that starts with "parent ")
+        # then set current_hash to that value, or "" if empty
+
+    commits.reverse()
+
+    for commit_hash, content in commits:
+        print(f"commit {commit_hash}")
+        message = content.split("\n\n", 1)[1]
+        print(f"    {message}")
+        print()
+    
+from minigit_pkg.objects import write_object, read_object
+import os
+from minigit_pkg.objects import write_object, read_object

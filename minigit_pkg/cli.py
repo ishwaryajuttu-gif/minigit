@@ -21,6 +21,8 @@ def main():
             return
         message = sys.argv[3]
         repository.commit(message)
+    elif command == "log":
+        repository.log()
     else:
         print(f"Unknown command: {command}")
 
