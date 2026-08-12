@@ -15,6 +15,12 @@ def main():
             print("Usage: minigit add <filepath>")
             return
         repository.add(sys.argv[2])
+    elif command == "commit":
+        if len(sys.argv) < 4 or sys.argv[2] != "-m":
+            print('Usage: minigit commit -m "message"')
+            return
+        message = sys.argv[3]
+        repository.commit(message)
     else:
         print(f"Unknown command: {command}")
 

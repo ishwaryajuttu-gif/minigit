@@ -19,3 +19,28 @@ def add(filepath: str):
     with open(os.path.join(MINIGIT_DIR, "index"), "a") as f:
         f.write(f"{filepath} {digest}\n")
     print(f"Added {filepath}")
+def write_tree():
+    index_path = os.path.join(MINIGIT_DIR, "index")
+    with open(index_path, "rb") as f:
+        index_content = f.read()
+    tree_hash = write_object(index_content, MINIGIT_DIR)
+    return tree_hash
+
+def commit(message: str):
+    tree_hash = write_tree()
+
+    head_path = os.path.join(MINIGIT_DIR, "HEAD")
+    if os.path.exists(head_path):
+        with open(head_path, "r") as f:
+            parent_hash = f.read().strip()
+    else:
+        parent_hash = ""
+
+    commit_content = f"tree {tree_hash}\nparent {parent_hash}\n\n{message}"
+    commit_hash = write_object(commit_content.encode(), MINIGIT_DIR)
+
+    with open(head_path, "w") as f:
+        f.write(commit_hash)
+
+    print(f"Committed as {commit_hash}")
+    return commit_hash
