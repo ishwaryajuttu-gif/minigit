@@ -92,7 +92,8 @@ Built incrementally, with each stage tagged and pushed as its own milestone:
 - `v0.2` — `init` + `add`, staging persisted to disk
 - `v0.3` — `commit`, tree snapshots + parent-linked commit chain
 - `v0.4` — `log`, backward traversal of commit history
-- `v1.0` — cleanup and packaging *(current)*
+- `v1.0` — bug fixes, test suite with CI, and packaging
+- `v1.0.1` — fixes for Unicode file names, adding several files, case-only renames, and corrupt objects *(current)*
 
 ## What I'd build next
 
