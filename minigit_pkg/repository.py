@@ -27,7 +27,10 @@ def read_index(root: str) -> dict:
     if not os.path.exists(index_path):
         return entries
     with open(index_path, "rb") as f:
-        for line in f.read().decode().splitlines():
+        # Split only on "\n": splitlines() would also split file names containing
+        # characters such as U+2028. The "\r" strip reads indexes from older versions.
+        for line in f.read().decode().split("\n"):
+            line = line.removesuffix("\r")
             if not line.strip():
                 continue
             path, separator, digest = line.rpartition(" ")
@@ -70,6 +73,8 @@ def read_commit(root: str, commit_hash: str) -> tuple:
         return parse_commit(read_object(commit_hash, os.path.join(root, MINIGIT_DIR)))
     except FileNotFoundError:
         raise MinigitError(f"missing commit object {commit_hash}") from None
+    except ValueError as error:
+        raise MinigitError(str(error)) from None
 
 
 def init():
@@ -82,8 +87,22 @@ def init():
     print("Initialized empty minigit repository.")
 
 
-def add(filepath: str):
-    root = find_repo()
+def tracked_name(root: str, entries: dict, rel_path: str, full_path: str) -> str:
+    # On case-insensitive file systems (Windows, macOS) "a.txt" and "A.txt" are the
+    # same file, so reuse the name already in the index instead of adding a duplicate
+    if rel_path in entries:
+        return rel_path
+    for existing in entries:
+        if existing.lower() == rel_path.lower():
+            existing_path = os.path.join(root, existing)
+            if os.path.exists(existing_path) and os.path.samefile(existing_path, full_path):
+                return existing
+    return rel_path
+
+
+def stage(root: str, entries: dict, filepath: str) -> str:
+    # Update entries for one path and return the message to print; raises before
+    # touching the index file, so add() can stage all paths or none
     full_path = os.path.abspath(filepath)
     try:
         rel_path = os.path.relpath(full_path, root)
@@ -93,28 +112,34 @@ def add(filepath: str):
         raise MinigitError(f"{filepath} is outside the repository")
     if rel_path.split(os.sep)[0] == MINIGIT_DIR:
         raise MinigitError(f"cannot add files inside {MINIGIT_DIR}")
-    if "\n" in rel_path:
+    if "\n" in rel_path or "\r" in rel_path:
         raise MinigitError("file names cannot contain line breaks")
     # Store paths relative to the repo root with "/" so they match on every OS
     rel_path = rel_path.replace(os.sep, "/")
 
-    entries = read_index(root)
     if not os.path.exists(full_path):
         # Adding a tracked file that was deleted stages its removal, like git add
         if rel_path in entries:
             del entries[rel_path]
-            write_index(root, entries)
-            print(f"Removed {rel_path}")
-            return
+            return f"Removed {rel_path}"
         raise MinigitError(f"file not found: {filepath}")
     if not os.path.isfile(full_path):
         raise MinigitError(f"not a file: {filepath}")
 
+    rel_path = tracked_name(root, entries, rel_path, full_path)
     with open(full_path, "rb") as f:
         content = f.read()
     entries[rel_path] = write_object(content, os.path.join(root, MINIGIT_DIR))
+    return f"Added {rel_path}"
+
+
+def add(*filepaths: str):
+    root = find_repo()
+    entries = read_index(root)
+    messages = [stage(root, entries, filepath) for filepath in filepaths]
     write_index(root, entries)
-    print(f"Added {rel_path}")
+    for message in messages:
+        print(message)
 
 
 def commit(message: str):

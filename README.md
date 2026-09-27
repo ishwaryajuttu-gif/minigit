@@ -15,7 +15,7 @@ Most people use Git without ever thinking about what's actually happening under 
 | Command | What it does |
 |---|---|
 | `init` | Creates a new repository (`.minigit/`) |
-| `add <file>` | Stages a file for the next commit. Re-adding a changed file replaces its staged version; adding a tracked file that was deleted stages its removal |
+| `add <file>...` | Stages one or more files for the next commit. Re-adding a changed file replaces its staged version; adding a tracked file that was deleted stages its removal. If any file can't be added, nothing is staged |
 | `commit -m "message"` | Snapshots staged files, links to the previous commit. Refuses if nothing changed since the last commit |
 | `log` | Prints commit history, oldest to newest |
 
@@ -23,7 +23,7 @@ Like Git, commands work from any subfolder of the repository, and errors (such a
 
 ## How it works
 
-Everything in `minigit` is built on one idea: **content-addressed storage** — you hash a piece of data, and that hash becomes its permanent address. Three object types are layered on top of this single mechanism:
+Everything in `minigit` is built on one idea: **content-addressed storage** — you hash a piece of data, and that hash becomes its permanent address. Because the address *is* the hash, every object is re-hashed when it's read, so a damaged or edited object is reported instead of being used. Three object types are layered on top of this single mechanism:
 
 - **Blob** — a file's raw content. Stored as `"blob " + byte-length + "\0" + content`, then SHA-1 hashed. This exact format is what makes `minigit`'s hashes match `git hash-object` output on identical files.
 - **Tree** — a snapshot of the staging area at commit time. Rather than inventing a new structure, the tree *is* the current `.minigit/index` content (a list of `filename → blob hash` pairs, one per file, sorted by path, with paths relative to the repository root), hashed and stored the same way a blob is. Because the order and line endings are fixed, the same files produce the same tree hash on every operating system.
@@ -82,7 +82,7 @@ python -m pip install -e ".[test]"
 python -m pytest
 ```
 
-The tests in `tests/` cover every command, including staging and re-staging files, staged removals, subfolders, refusing empty commits, identical tree hashes regardless of the order files were added, `log` output, error messages and exit codes, and repositories created by earlier versions. GitHub Actions runs them on Linux, Windows and macOS with Python 3.10 and 3.14 for every pull request and every push to `main`.
+The tests in `tests/` cover every command, including staging and re-staging files, adding several files at once, staged removals, file names that differ only in case, Unicode file names, corrupt objects, subfolders, refusing empty commits, identical tree hashes regardless of the order files were added, `log` output, error messages and exit codes, and repositories created by earlier versions. GitHub Actions runs them on Linux, Windows and macOS with Python 3.10 and 3.14 for every pull request and every push to `main`.
 
 ## Project history
 
