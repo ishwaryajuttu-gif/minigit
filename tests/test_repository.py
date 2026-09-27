@@ -93,6 +93,68 @@ def test_file_names_with_spaces(repo, run):
     assert read_index(str(repo)) == {"my file.txt": hash_object(b"x\n")}
 
 
+@pytest.mark.parametrize("name", ["a b.txt", "a b.txt", "a\x85b.txt"])
+def test_file_names_with_unicode_line_separators(repo, run, name):
+    # str.splitlines() treats these as line breaks; the index must not
+    (repo / name).write_bytes(b"x\n")
+    (repo / "other.txt").write_bytes(b"y\n")
+    assert run("add", name)[0] == 0
+    assert run("add", "other.txt")[0] == 0
+    assert read_index(str(repo)) == {name: hash_object(b"x\n"), "other.txt": hash_object(b"y\n")}
+    assert run("commit", "-m", "unicode names")[0] == 0
+
+
+def test_add_several_files(repo, run):
+    (repo / "a.txt").write_bytes(b"a\n")
+    (repo / "b.txt").write_bytes(b"b\n")
+    assert run("add", "b.txt", "a.txt") == (0, "Added b.txt\nAdded a.txt\n")
+    assert read_index(str(repo)) == {"a.txt": hash_object(b"a\n"), "b.txt": hash_object(b"b\n")}
+
+
+def test_add_stages_nothing_if_any_file_fails(repo, run):
+    (repo / "a.txt").write_bytes(b"a\n")
+    assert run("add", "a.txt", "missing.txt") == (1, "Error: file not found: missing.txt\n")
+    assert index_bytes(repo) == b""
+
+
+def test_add_removal_and_update_together(repo, run):
+    (repo / "a.txt").write_bytes(b"a\n")
+    (repo / "b.txt").write_bytes(b"b\n")
+    run("add", "a.txt", "b.txt")
+    (repo / "a.txt").unlink()
+    (repo / "b.txt").write_bytes(b"b2\n")
+    assert run("add", "a.txt", "b.txt") == (0, "Removed a.txt\nAdded b.txt\n")
+    assert read_index(str(repo)) == {"b.txt": hash_object(b"b2\n")}
+
+
+def case_insensitive(folder):
+    probe = folder / "CaseProbe.tmp"
+    probe.write_bytes(b"")
+    try:
+        return (folder / "caseprobe.tmp").exists()
+    finally:
+        probe.unlink()
+
+
+def test_case_only_rename_reuses_tracked_name(repo, run):
+    if not case_insensitive(repo):
+        pytest.skip("file system is case-sensitive")
+    (repo / "A.txt").write_bytes(b"one\n")
+    run("add", "A.txt")
+    (repo / "A.txt").write_bytes(b"two\n")
+    assert run("add", "a.txt") == (0, "Added A.txt\n")
+    assert read_index(str(repo)) == {"A.txt": hash_object(b"two\n")}
+
+
+def test_different_case_names_are_separate_on_case_sensitive_systems(repo, run):
+    if case_insensitive(repo):
+        pytest.skip("file system is case-insensitive")
+    (repo / "A.txt").write_bytes(b"upper\n")
+    (repo / "a.txt").write_bytes(b"lower\n")
+    run("add", "A.txt", "a.txt")
+    assert read_index(str(repo)) == {"A.txt": hash_object(b"upper\n"), "a.txt": hash_object(b"lower\n")}
+
+
 def test_index_is_sorted_with_lf_endings(repo, run):
     for name in ["c.txt", "a.txt", "b.txt"]:
         (repo / name).write_text(name + "\n")
@@ -189,6 +251,20 @@ def test_log_prints_oldest_first(repo, run):
     ))
 
 
+def test_corrupt_commit_is_reported(repo, run):
+    (repo / "a.txt").write_bytes(b"a\n")
+    run("add", "a.txt")
+    run("commit", "-m", "first")
+    head = read_head(str(repo))
+    (repo / ".minigit" / "objects" / head).write_bytes(b"garbage")
+    message = f"Error: object {head} is corrupt: its content no longer matches its hash\n"
+    assert run("log") == (1, message)
+    (repo / "b.txt").write_bytes(b"b\n")
+    run("add", "b.txt")
+    assert run("commit", "-m", "second") == (1, message)
+    assert read_head(str(repo)) == head
+
+
 def test_log_reports_missing_commit(repo, run):
     (repo / ".minigit" / "HEAD").write_text("0" * 40)
     assert run("log") == (1, f"Error: missing commit object {'0' * 40}\n")
@@ -226,9 +302,10 @@ def test_old_repository_log_and_commit(repo, run):
 
 @pytest.mark.parametrize("args, message", [
     ((), "Usage: minigit <command> [args]"),
-    (("add",), "Usage: minigit add <filepath>"),
+    (("add",), "Usage: minigit add <filepath>..."),
     (("commit",), 'Usage: minigit commit -m "message"'),
     (("commit", "message"), 'Usage: minigit commit -m "message"'),
+    (("commit", "-m", "two", "words"), 'Usage: minigit commit -m "message"'),
     (("bogus",), "Unknown command: bogus"),
 ])
 def test_usage_errors(repo, run, args, message):

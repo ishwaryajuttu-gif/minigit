@@ -13,11 +13,11 @@ def main() -> int:
             repository.init()
         elif command == "add":
             if len(sys.argv) < 3:
-                print("Usage: minigit add <filepath>")
+                print("Usage: minigit add <filepath>...")
                 return 1
-            repository.add(sys.argv[2])
+            repository.add(*sys.argv[2:])
         elif command == "commit":
-            if len(sys.argv) < 4 or sys.argv[2] != "-m":
+            if len(sys.argv) != 4 or sys.argv[2] != "-m":
                 print('Usage: minigit commit -m "message"')
                 return 1
             message = sys.argv[3]

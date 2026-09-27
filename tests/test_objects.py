@@ -34,6 +34,13 @@ def test_hash_matches_git_hash_object(tmp_path, content):
     assert hash_object(content) == result.stdout.strip()
 
 
+def test_read_rejects_corrupt_object(tmp_path):
+    digest = write_object(b"original\n", str(tmp_path))
+    (tmp_path / "objects" / digest).write_bytes(b"edited\n")
+    with pytest.raises(ValueError, match="corrupt"):
+        read_object(digest, str(tmp_path))
+
+
 def test_write_then_read_round_trips(tmp_path):
     digest = write_object(b"some bytes\n", str(tmp_path))
     assert digest == hash_object(b"some bytes\n")

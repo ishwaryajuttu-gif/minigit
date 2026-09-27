@@ -20,4 +20,8 @@ def read_object(digest: str, minigit_dir: str) -> bytes:
     objects_path = os.path.join(minigit_dir, "objects")
     file_path = os.path.join(objects_path, digest)
     with open(file_path, "rb") as f:
-        return f.read()
+        content = f.read()
+    # An object's name is its hash, so a mismatch means the file was damaged or edited
+    if hash_object(content) != digest:
+        raise ValueError(f"object {digest} is corrupt: its content no longer matches its hash")
+    return content
