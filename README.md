@@ -46,27 +46,31 @@ Everything in `minigit` is built on one idea: **content-addressed storage** — 
 
 ## Usage
 
+Requires Python 3.10 or newer. Install it with pip, which adds a `minigit` command:
+
 ```bash
 git clone https://github.com/ishwaryajuttu-gif/minigit.git
 cd minigit
-
-# make the package importable
-export PYTHONPATH=$(pwd)          # macOS/Linux/Git Bash
-# or, on Windows PowerShell:
-# $env:PYTHONPATH = (Get-Location).Path
-
-mkdir myproject && cd myproject
-python -m minigit_pkg.cli init
-echo "hello world" > file.txt
-python -m minigit_pkg.cli add file.txt
-python -m minigit_pkg.cli commit -m "first commit"
-python -m minigit_pkg.cli log
+python -m pip install .
 ```
+
+Then use it in any folder:
+
+```bash
+mkdir myproject && cd myproject
+minigit init
+echo "hello world" > file.txt
+minigit add file.txt
+minigit commit -m "first commit"
+minigit log
+```
+
+If you're changing minigit itself, install it with `python -m pip install -e ".[test]"` instead, so your edits take effect without reinstalling and pytest is installed too.
 
 ## Verified against real Git
 
 ```bash
-python -m minigit_pkg.cli add file.txt
+minigit add file.txt
 git hash-object file.txt
 ```
 The hash written into `.minigit/index` matches `git hash-object`'s output exactly — proof that the blob format is implemented correctly, not approximated. The test suite checks this automatically against real `git hash-object` for text, binary, Unicode and Windows line-ending content.
@@ -74,7 +78,7 @@ The hash written into `.minigit/index` matches `git hash-object`'s output exactl
 ## Testing
 
 ```bash
-python -m pip install pytest
+python -m pip install -e ".[test]"
 python -m pytest
 ```
 
@@ -100,3 +104,7 @@ Built incrementally, with each stage tagged and pushed as its own milestone:
 ## Tech
 
 Python, `hashlib` (SHA-1), no external dependencies. Tests use `pytest`.
+
+## License
+
+[MIT](LICENSE)
