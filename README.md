@@ -17,7 +17,8 @@ Most people use Git without ever thinking about what's actually happening under 
 | `init` | Creates a new repository (`.minigit/`) |
 | `add <file>...` | Stages one or more files for the next commit. Re-adding a changed file replaces its staged version; adding a tracked file that was deleted stages its removal. If any file can't be added, nothing is staged |
 | `commit -m "message"` | Snapshots staged files, links to the previous commit. Refuses if nothing changed since the last commit |
-| `log` | Prints commit history, oldest to newest |
+| `log` | Prints commit history, oldest to newest, with each commit's author and date |
+| `config [--global] <key> [<value>]` | Sets or shows `user.name` and `user.email`, which are recorded as the author of each commit. See [Setting your name](#setting-your-name) |
 | `checkout <commit> [<file>...]` | Restores files from a commit and stages them. With no files, restores the whole snapshot. See [Restoring files](#restoring-files) |
 
 Like Git, commands work from any subfolder of the repository, and errors (such as a missing file or running outside a repository) print a message and exit with status 1.
@@ -28,13 +29,15 @@ Everything in `minigit` is built on one idea: **content-addressed storage** — 
 
 - **Blob** — a file's raw content. Stored as `"blob " + byte-length + "\0" + content`, then SHA-1 hashed. This exact format is what makes `minigit`'s hashes match `git hash-object` output on identical files.
 - **Tree** — a snapshot of the staging area at commit time. Rather than inventing a new structure, the tree *is* the current `.minigit/index` content (a list of `filename → blob hash` pairs, one per file, sorted by path, with paths relative to the repository root), hashed and stored the same way a blob is. Because the order and line endings are fixed, the same files produce the same tree hash on every operating system.
-- **Commit** — wraps a tree hash with a pointer to the parent commit and a message:
+- **Commit** — wraps a tree hash with a pointer to the parent commit, the author, and a message:
   ```
   tree <tree_hash>
   parent <parent_hash_or_empty>
+  author <name> <<email>> <seconds_since_1970> <utc_offset>
 
   <message>
   ```
+  The author line uses the same layout as Git's, for example `author Ada Lovelace <ada@example.com> 1700000000 +0530`. Storing the time as seconds plus the UTC offset means `log` can show the date in the author's own time zone. Commits made before v1.1 have no author line and still load.
   Because each commit stores its parent's hash, an entire history can be reconstructed by walking backward from a single pointer — no need to store the full history in every commit.
 
 `.minigit/HEAD` always holds the hash of the most recent commit. `log` starts there and walks the `parent` chain backward, collecting each commit until it reaches the first one (empty parent), then reverses the list to print oldest → newest.
@@ -64,6 +67,27 @@ echo "hello world" > file.txt
 minigit add file.txt
 minigit commit -m "first commit"
 minigit log
+```
+
+### Setting your name
+
+Each commit records who made it. Set your name and email once for all your repositories:
+
+```bash
+minigit config --global user.name "Ada Lovelace"
+minigit config --global user.email "ada@example.com"
+```
+
+Leave out `--global` to set them for just the current repository. minigit uses, in order: the `MINIGIT_AUTHOR_NAME` and `MINIGIT_AUTHOR_EMAIL` environment variables, the repository's setting (`.minigit/config`), then the global one (`~/.minigitconfig`). If no name is set anywhere, it uses your computer login name. Run `minigit config user.name` to see the name that will be used.
+
+`log` then shows:
+
+```text
+commit 3f2a9c1e5b...
+Author: Ada Lovelace <ada@example.com>
+Date:   Wed Nov 15 03:43:20 2023 +0530
+
+    first commit
 ```
 
 If you're changing minigit itself, install it with `python -m pip install -e ".[test]"` instead, so your edits take effect without reinstalling and pytest is installed too.
@@ -100,7 +124,7 @@ python -m pip install -e ".[test]"
 python -m pytest
 ```
 
-The tests in `tests/` cover every command, including staging and re-staging files, adding several files at once, staged removals, file names that differ only in case, Unicode file names, corrupt objects, subfolders, refusing empty commits, restoring single files and whole snapshots with `checkout` (including protecting unstaged changes and refusing unsafe paths), identical tree hashes regardless of the order files were added, `log` output, error messages and exit codes, and repositories created by earlier versions. GitHub Actions runs them on Linux, Windows and macOS with Python 3.10 and 3.14 for every pull request and every push to `main`.
+The tests in `tests/` cover every command, including staging and re-staging files, adding several files at once, staged removals, file names that differ only in case, Unicode file names, corrupt objects, subfolders, refusing empty commits, recording and showing commit authors and dates, `config` settings, restoring single files and whole snapshots with `checkout` (including protecting unstaged changes and refusing unsafe paths), identical tree hashes regardless of the order files were added, `log` output, error messages and exit codes, and repositories created by earlier versions. GitHub Actions runs them on Linux, Windows and macOS with Python 3.10 and 3.14 for every pull request and every push to `main`.
 
 ## Project history
 

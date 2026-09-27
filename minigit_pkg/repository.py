@@ -1,7 +1,15 @@
+import configparser
+import getpass
 import os
+import time
+from datetime import datetime, timedelta, timezone
+from typing import NamedTuple
+
 from minigit_pkg.objects import hash_object, read_object, write_object
 
 MINIGIT_DIR = ".minigit"
+GLOBAL_CONFIG_NAME = ".minigitconfig"
+CONFIG_KEYS = ("user.name", "user.email")
 
 
 class MinigitError(Exception):
@@ -63,14 +71,109 @@ def read_head(root: str) -> str:
         return f.read().decode().strip()
 
 
-def parse_commit(content: bytes) -> tuple:
+def global_config_path() -> str:
+    return os.path.join(os.path.expanduser("~"), GLOBAL_CONFIG_NAME)
+
+
+def repo_config_path(root: str) -> str:
+    return os.path.join(root, MINIGIT_DIR, "config")
+
+
+def split_key(key: str) -> tuple:
+    if key not in CONFIG_KEYS:
+        raise MinigitError(f"unknown config key {key} (use {' or '.join(CONFIG_KEYS)})")
+    section, option = key.split(".")
+    return section, option
+
+
+def load_config(path: str) -> configparser.ConfigParser:
+    # Same [section] / key = value layout as a .gitconfig file
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        parser.read(path, encoding="utf-8")
+    except (configparser.Error, UnicodeDecodeError):
+        raise MinigitError(f"can't read config file {path}") from None
+    return parser
+
+
+def read_config_value(path: str, key: str) -> str:
+    section, option = split_key(key)
+    return load_config(path).get(section, option, fallback="").strip()
+
+
+def config_value(root, key: str) -> str:
+    # The repository's setting wins over the global one
+    paths = ([repo_config_path(root)] if root else []) + [global_config_path()]
+    for path in paths:
+        value = read_config_value(path, key)
+        if value:
+            return value
+    return ""
+
+
+def check_identity_part(key: str, value: str):
+    # "<", ">" and line breaks would make the author line impossible to parse
+    if any(character in value for character in "<>\r\n"):
+        raise MinigitError(f"{key} cannot contain '<', '>' or line breaks")
+
+
+def login_name() -> str:
+    try:
+        return getpass.getuser()
+    except Exception:  # getuser() can fail when no login name is available
+        return "unknown"
+
+
+def author_identity(root: str) -> str:
+    # Environment variables, then repository config, then global config;
+    # the name falls back to the login name so commits never fail for lack of one
+    name = (os.environ.get("MINIGIT_AUTHOR_NAME", "").strip()
+            or config_value(root, "user.name") or login_name())
+    email = os.environ.get("MINIGIT_AUTHOR_EMAIL", "").strip() or config_value(root, "user.email")
+    check_identity_part("author name", name)
+    check_identity_part("author email", email)
+    return f"{name} <{email}>"
+
+
+def author_timestamp() -> str:
+    # Seconds since 1970 plus the local UTC offset, as git stores it: "1727445000 +0530"
+    seconds = int(time.time())
+    offset = datetime.fromtimestamp(seconds).astimezone().utcoffset()
+    minutes = int(offset.total_seconds()) // 60
+    sign = "-" if minutes < 0 else "+"
+    minutes = abs(minutes)
+    return f"{seconds} {sign}{minutes // 60:02d}{minutes % 60:02d}"
+
+
+def describe_author(author: str) -> tuple:
+    # "Name <email> 1727445000 +0530" -> ("Name <email>", "Fri Sep 27 19:20:00 2026 +0530")
+    who, separator, when = author.rpartition("> ")
+    try:
+        seconds, zone = when.split()
+        if not separator or len(zone) != 5 or zone[0] not in "+-":
+            raise ValueError(zone)
+        offset = timedelta(hours=int(zone[1:3]), minutes=int(zone[3:5]))
+        moment = datetime.fromtimestamp(int(seconds), timezone(-offset if zone[0] == "-" else offset))
+    except (ValueError, OverflowError, OSError):
+        return author, "unknown"
+    return f"{who}>", f"{moment:%a %b} {moment.day} {moment:%H:%M:%S %Y} {zone}"
+
+
+class Commit(NamedTuple):
+    tree: str
+    parent: str
+    author: str  # "Name <email> timestamp +zone", or "" for commits made before v1.1
+    message: str
+
+
+def parse_commit(content: bytes) -> Commit:
     # Header fields come first, then a blank line, then the (possibly multi-line) message
     header, _, message = content.decode().partition("\n\n")
     fields = {}
     for line in header.split("\n"):
         key, _, value = line.partition(" ")
         fields[key] = value.strip()
-    return fields.get("tree", ""), fields.get("parent", ""), message
+    return Commit(fields.get("tree", ""), fields.get("parent", ""), fields.get("author", ""), message)
 
 
 def load_object(root: str, digest: str, kind: str) -> bytes:
@@ -82,7 +185,7 @@ def load_object(root: str, digest: str, kind: str) -> bytes:
         raise MinigitError(str(error)) from None
 
 
-def read_commit(root: str, commit_hash: str) -> tuple:
+def read_commit(root: str, commit_hash: str) -> Commit:
     return parse_commit(load_object(root, commit_hash, "commit"))
 
 
@@ -92,7 +195,7 @@ def history(root: str) -> list:
     current_hash = read_head(root)
     while current_hash:
         hashes.append(current_hash)
-        _, current_hash, _ = read_commit(root, current_hash)
+        current_hash = read_commit(root, current_hash).parent
     return hashes
 
 
@@ -210,7 +313,7 @@ def commit(message: str):
     tree_content = format_index(read_index(root))
     parent_hash = read_head(root)
     if parent_hash:
-        parent_tree, _, _ = read_commit(root, parent_hash)
+        parent_tree = read_commit(root, parent_hash).tree
         unchanged = hash_object(tree_content) == parent_tree
     else:
         unchanged = tree_content == b""
@@ -218,7 +321,8 @@ def commit(message: str):
         raise MinigitError("nothing to commit (use 'add' to stage changes)")
 
     tree_hash = write_object(tree_content, minigit_dir)
-    commit_content = f"tree {tree_hash}\nparent {parent_hash}\n\n{message}"
+    author = f"{author_identity(root)} {author_timestamp()}"
+    commit_content = f"tree {tree_hash}\nparent {parent_hash}\nauthor {author}\n\n{message}"
     commit_hash = write_object(commit_content.encode(), minigit_dir)
 
     with open(os.path.join(minigit_dir, "HEAD"), "wb") as f:
@@ -238,17 +342,47 @@ def log():
     # Walk the parent pointers back to the first commit, then print oldest first
     commits = []
     while current_hash:
-        _, parent_hash, message = read_commit(root, current_hash)
-        commits.append((current_hash, message))
-        current_hash = parent_hash
+        details = read_commit(root, current_hash)
+        commits.append((current_hash, details))
+        current_hash = details.parent
 
     commits.reverse()
 
-    for commit_hash, message in commits:
+    for commit_hash, details in commits:
         print(f"commit {commit_hash}")
-        for line in message.split("\n"):
+        # Commits made before v1.1 have no author line
+        if details.author:
+            who, date = describe_author(details.author)
+            print(f"Author: {who}")
+            print(f"Date:   {date}")
+            print()
+        for line in details.message.split("\n"):
             print(f"    {line}")
         print()
+
+
+def config(key: str, value=None, use_global: bool = False):
+    split_key(key)
+    root = None if use_global else find_repo()
+    path = global_config_path() if use_global else repo_config_path(root)
+    if value is None:
+        found = read_config_value(path, key) if use_global else config_value(root, key)
+        if not found:
+            raise MinigitError(f"{key} is not set")
+        print(found)
+        return
+    value = value.strip()
+    if not value:
+        raise MinigitError(f"{key} cannot be empty")
+    check_identity_part(key, value)
+    section, option = split_key(key)
+    parser = load_config(path)
+    if not parser.has_section(section):
+        parser.add_section(section)
+    parser.set(section, option, value)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        parser.write(f)
+    print(f"Set {key} to {value}" + (" for all repositories" if use_global else ""))
 
 
 def has_unstaged_changes(root: str, entries: dict, path: str, target_hash: str) -> bool:
@@ -282,7 +416,7 @@ def checkout(ref: str, *filepaths: str, force: bool = False):
     root = find_repo()
     commit_hash = resolve_commit(root, ref)
     short_hash = commit_hash[:7]
-    tree_hash, _, _ = read_commit(root, commit_hash)
+    tree_hash = read_commit(root, commit_hash).tree
     snapshot = parse_index(load_object(root, tree_hash, "tree"))
 
     if filepaths:

@@ -24,6 +24,14 @@ def main() -> int:
             repository.commit(message)
         elif command == "log":
             repository.log()
+        elif command == "config":
+            args = sys.argv[2:]
+            use_global = "--global" in args
+            args = [arg for arg in args if arg != "--global"]
+            if len(args) not in (1, 2):
+                print("Usage: minigit config [--global] <key> [<value>]")
+                return 1
+            repository.config(args[0], args[1] if len(args) == 2 else None, use_global)
         elif command == "checkout":
             args = sys.argv[2:]
             force = "--force" in args

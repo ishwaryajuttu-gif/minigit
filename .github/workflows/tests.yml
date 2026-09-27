@@ -35,8 +35,11 @@ jobs:
           printf 'hello world\n' > file.txt
           minigit add file.txt
           test "$(cut -d' ' -f2 .minigit/index)" = "$(git hash-object --no-filters file.txt)"
+          minigit config user.name "CI Bot"
           minigit commit -m "first commit"
           minigit log | grep -q "first commit"
+          minigit log | grep -q "^Author: CI Bot <>$"
+          minigit log | grep -q "^Date:   "
           if minigit commit -m "no changes"; then exit 1; fi
           first="$(cat .minigit/HEAD)"
           printf 'changed\n' > file.txt
