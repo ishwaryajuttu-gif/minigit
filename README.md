@@ -1,5 +1,7 @@
 # minigit
 
+[![Tests](https://github.com/ishwaryajuttu-gif/minigit/actions/workflows/tests.yml/badge.svg)](https://github.com/ishwaryajuttu-gif/minigit/actions/workflows/tests.yml)
+
 A from-scratch reimplementation of Git's core version-control engine — no real Git used internally. Built to understand *why* Git is designed the way it is, not just how to use it.
 
 `minigit` supports the essential workflow — `init`, `add`, `commit`, `log` — and its file-hashing is byte-for-byte identical to real Git's, verified against `git hash-object` on every commit.
@@ -67,7 +69,16 @@ python -m minigit_pkg.cli log
 python -m minigit_pkg.cli add file.txt
 git hash-object file.txt
 ```
-The hash written into `.minigit/index` matches `git hash-object`'s output exactly — proof that the blob format is implemented correctly, not approximated.
+The hash written into `.minigit/index` matches `git hash-object`'s output exactly — proof that the blob format is implemented correctly, not approximated. The test suite checks this automatically against real `git hash-object` for text, binary, Unicode and Windows line-ending content.
+
+## Testing
+
+```bash
+python -m pip install pytest
+python -m pytest
+```
+
+The tests in `tests/` cover every command, including staging and re-staging files, staged removals, subfolders, refusing empty commits, identical tree hashes regardless of the order files were added, `log` output, error messages and exit codes, and repositories created by earlier versions. GitHub Actions runs them on Linux, Windows and macOS with Python 3.10 and 3.14 for every pull request and every push to `main`.
 
 ## Project history
 
@@ -88,4 +99,4 @@ Built incrementally, with each stage tagged and pushed as its own milestone:
 
 ## Tech
 
-Python, `hashlib` (SHA-1), no external dependencies.
+Python, `hashlib` (SHA-1), no external dependencies. Tests use `pytest`.
