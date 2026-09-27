@@ -306,12 +306,13 @@ def test_old_repository_log_and_commit(repo, run):
 # --- command line ---
 
 @pytest.mark.parametrize("args, message", [
-    ((), "Usage: minigit <command> [args]"),
-    (("add",), "Usage: minigit add <filepath>..."),
+    (("add",), "Usage: minigit add <file>..."),
     (("commit",), 'Usage: minigit commit -m "message"'),
     (("commit", "message"), 'Usage: minigit commit -m "message"'),
     (("commit", "-m", "two", "words"), 'Usage: minigit commit -m "message"'),
-    (("bogus",), "Unknown command: bogus"),
+    (("init", "extra"), "Usage: minigit init"),
+    (("log", "extra"), "Usage: minigit log"),
+    (("bogus",), "Unknown command: bogus\nRun 'minigit --help' to see the commands."),
 ])
 def test_usage_errors(repo, run, args, message):
     assert run(*args) == (1, message + "\n")
