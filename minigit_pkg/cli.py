@@ -24,6 +24,14 @@ def main() -> int:
             repository.commit(message)
         elif command == "log":
             repository.log()
+        elif command == "checkout":
+            args = sys.argv[2:]
+            force = "--force" in args
+            args = [arg for arg in args if arg != "--force"]
+            if not args:
+                print("Usage: minigit checkout <commit> [<file>...] [--force]")
+                return 1
+            repository.checkout(args[0], *args[1:], force=force)
         else:
             print(f"Unknown command: {command}")
             return 1

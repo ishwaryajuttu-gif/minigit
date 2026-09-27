@@ -38,3 +38,10 @@ jobs:
           minigit commit -m "first commit"
           minigit log | grep -q "first commit"
           if minigit commit -m "no changes"; then exit 1; fi
+          first="$(cat .minigit/HEAD)"
+          printf 'changed\n' > file.txt
+          minigit add file.txt
+          minigit commit -m "second commit"
+          rm file.txt
+          minigit checkout "${first:0:7}" file.txt
+          test "$(cat file.txt)" = "hello world"

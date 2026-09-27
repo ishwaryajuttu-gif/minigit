@@ -20,24 +20,29 @@ def find_repo() -> str:
         path = parent
 
 
-def read_index(root: str) -> dict:
-    # Later lines win, so indexes written before add replaced entries still load correctly
-    index_path = os.path.join(root, MINIGIT_DIR, "index")
+def parse_index(data: bytes) -> dict:
+    # Used for both the index file and tree objects, which share one format.
+    # Later lines win, so indexes written before add replaced entries still load correctly.
     entries = {}
-    if not os.path.exists(index_path):
-        return entries
-    with open(index_path, "rb") as f:
-        # Split only on "\n": splitlines() would also split file names containing
-        # characters such as U+2028. The "\r" strip reads indexes from older versions.
-        for line in f.read().decode().split("\n"):
-            line = line.removesuffix("\r")
-            if not line.strip():
-                continue
-            path, separator, digest = line.rpartition(" ")
-            if not separator or not path:
-                raise MinigitError(f"corrupt index line: {line!r}")
-            entries[path] = digest
+    # Split only on "\n": splitlines() would also split file names containing
+    # characters such as U+2028. The "\r" strip reads indexes from older versions.
+    for line in data.decode().split("\n"):
+        line = line.removesuffix("\r")
+        if not line.strip():
+            continue
+        path, separator, digest = line.rpartition(" ")
+        if not separator or not path:
+            raise MinigitError(f"corrupt index line: {line!r}")
+        entries[path] = digest
     return entries
+
+
+def read_index(root: str) -> dict:
+    index_path = os.path.join(root, MINIGIT_DIR, "index")
+    if not os.path.exists(index_path):
+        return {}
+    with open(index_path, "rb") as f:
+        return parse_index(f.read())
 
 
 def format_index(entries: dict) -> bytes:
@@ -68,13 +73,79 @@ def parse_commit(content: bytes) -> tuple:
     return fields.get("tree", ""), fields.get("parent", ""), message
 
 
-def read_commit(root: str, commit_hash: str) -> tuple:
+def load_object(root: str, digest: str, kind: str) -> bytes:
     try:
-        return parse_commit(read_object(commit_hash, os.path.join(root, MINIGIT_DIR)))
+        return read_object(digest, os.path.join(root, MINIGIT_DIR))
     except FileNotFoundError:
-        raise MinigitError(f"missing commit object {commit_hash}") from None
+        raise MinigitError(f"missing {kind} object {digest}") from None
     except ValueError as error:
         raise MinigitError(str(error)) from None
+
+
+def read_commit(root: str, commit_hash: str) -> tuple:
+    return parse_commit(load_object(root, commit_hash, "commit"))
+
+
+def history(root: str) -> list:
+    # Commit hashes from HEAD back to the first commit, newest first
+    hashes = []
+    current_hash = read_head(root)
+    while current_hash:
+        hashes.append(current_hash)
+        _, current_hash, _ = read_commit(root, current_hash)
+    return hashes
+
+
+def resolve_commit(root: str, ref: str) -> str:
+    # Accept "HEAD", a full hash, or a unique prefix of at least 4 characters,
+    # matched only against commits in the history so blobs and trees can't be picked
+    head = read_head(root)
+    if not head:
+        raise MinigitError("no commits yet")
+    if ref == "HEAD":
+        return head
+    ref = ref.lower()
+    if len(ref) < 4 or any(c not in "0123456789abcdef" for c in ref):
+        raise MinigitError(f"not a commit: {ref} (use a hash from 'log', at least 4 characters)")
+    matches = [h for h in history(root) if h.startswith(ref)]
+    if not matches:
+        raise MinigitError(f"no commit matches {ref}")
+    if len(matches) > 1:
+        raise MinigitError(f"{ref} matches more than one commit; use more characters")
+    return matches[0]
+
+
+def to_repo_path(root: str, filepath: str) -> tuple:
+    # Returns (path relative to the repo root with "/" separators, absolute path)
+    full_path = os.path.abspath(filepath)
+    try:
+        rel_path = os.path.relpath(full_path, root)
+    except ValueError:  # different drive on Windows
+        rel_path = os.pardir
+    if rel_path.split(os.sep)[0] == os.pardir:
+        raise MinigitError(f"{filepath} is outside the repository")
+    if rel_path.split(os.sep)[0] == MINIGIT_DIR:
+        raise MinigitError(f"cannot use files inside {MINIGIT_DIR}")
+    if "\n" in rel_path or "\r" in rel_path:
+        raise MinigitError("file names cannot contain line breaks")
+    # Store paths relative to the repo root with "/" so they match on every OS
+    return rel_path.replace(os.sep, "/"), full_path
+
+
+def working_path(root: str, path: str) -> str:
+    # Turn a path from a tree into a location on disk, refusing anything that
+    # could write outside the repository or into .minigit
+    # Windows also treats "\" as a separator, so check those pieces there too
+    parts = (path.replace("\\", "/") if os.name == "nt" else path).split("/")
+    unsafe = (
+        os.path.isabs(path)
+        or (os.name == "nt" and ":" in path)
+        or any(part in ("", ".", "..") for part in parts)
+        or parts[0] == MINIGIT_DIR
+    )
+    if unsafe:
+        raise MinigitError(f"refusing to restore unsafe path {path!r}")
+    return os.path.join(root, *parts)
 
 
 def init():
@@ -103,19 +174,7 @@ def tracked_name(root: str, entries: dict, rel_path: str, full_path: str) -> str
 def stage(root: str, entries: dict, filepath: str) -> str:
     # Update entries for one path and return the message to print; raises before
     # touching the index file, so add() can stage all paths or none
-    full_path = os.path.abspath(filepath)
-    try:
-        rel_path = os.path.relpath(full_path, root)
-    except ValueError:  # different drive on Windows
-        rel_path = os.pardir
-    if rel_path.split(os.sep)[0] == os.pardir:
-        raise MinigitError(f"{filepath} is outside the repository")
-    if rel_path.split(os.sep)[0] == MINIGIT_DIR:
-        raise MinigitError(f"cannot add files inside {MINIGIT_DIR}")
-    if "\n" in rel_path or "\r" in rel_path:
-        raise MinigitError("file names cannot contain line breaks")
-    # Store paths relative to the repo root with "/" so they match on every OS
-    rel_path = rel_path.replace(os.sep, "/")
+    rel_path, full_path = to_repo_path(root, filepath)
 
     if not os.path.exists(full_path):
         # Adding a tracked file that was deleted stages its removal, like git add
@@ -190,3 +249,83 @@ def log():
         for line in message.split("\n"):
             print(f"    {line}")
         print()
+
+
+def has_unstaged_changes(root: str, entries: dict, path: str, target_hash: str) -> bool:
+    # True if restoring would overwrite content that isn't saved anywhere: the file
+    # differs from the version being restored and from its staged version
+    full_path = working_path(root, path)
+    if not os.path.isfile(full_path):
+        return False
+    with open(full_path, "rb") as f:
+        current = hash_object(f.read())
+    return current != target_hash and current != entries.get(path)
+
+
+def blocked_by(root: str, path: str) -> str:
+    # A folder where the file goes, or a file where one of its folders goes, stops the write
+    full_path = working_path(root, path)
+    if os.path.isdir(full_path):
+        return f"a folder named {path} is in the way"
+    folder = os.path.dirname(full_path)
+    while folder != root:
+        if os.path.exists(folder) and not os.path.isdir(folder):
+            return f"a file is in the way of the folder {os.path.relpath(folder, root)}"
+        folder = os.path.dirname(folder)
+    return ""
+
+
+def checkout(ref: str, *filepaths: str, force: bool = False):
+    # Restore files from a commit into the working folder and stage them. HEAD doesn't
+    # move: without branches, that would hide every later commit from log. Commit
+    # afterwards to record the restored files as a new commit.
+    root = find_repo()
+    commit_hash = resolve_commit(root, ref)
+    short_hash = commit_hash[:7]
+    tree_hash, _, _ = read_commit(root, commit_hash)
+    snapshot = parse_index(load_object(root, tree_hash, "tree"))
+
+    if filepaths:
+        paths = []
+        for filepath in filepaths:
+            rel_path, _ = to_repo_path(root, filepath)
+            if rel_path not in snapshot:
+                raise MinigitError(f"{filepath} is not in commit {short_hash}")
+            paths.append(rel_path)
+        paths = list(dict.fromkeys(paths))
+    else:
+        paths = sorted(snapshot)
+
+    # Check everything before writing anything, so a problem leaves every file untouched
+    contents = {path: load_object(root, snapshot[path], "file") for path in paths}
+    for path in paths:
+        problem = blocked_by(root, path)
+        if problem:
+            raise MinigitError(f"cannot restore {path}: {problem}")
+    entries = read_index(root)
+    if not force:
+        at_risk = [path for path in paths if has_unstaged_changes(root, entries, path, snapshot[path])]
+        if at_risk:
+            listed = "\n".join(f"  {path}" for path in at_risk)
+            raise MinigitError(
+                "these files have changes that aren't staged and would be overwritten:\n"
+                f"{listed}\nadd them first to keep the changes, or use --force to discard them"
+            )
+
+    messages = []
+    for path in paths:
+        full_path = working_path(root, path)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "wb") as f:
+            f.write(contents[path])
+        entries[path] = snapshot[path]
+        messages.append(f"Restored {path}")
+    if not filepaths:
+        # A whole-snapshot checkout stages exactly that snapshot; other tracked files
+        # stay on disk but won't be in the next commit
+        for path in sorted(set(entries) - set(snapshot)):
+            del entries[path]
+            messages.append(f"Unstaged {path} (not in {short_hash}; the file is left in place)")
+    write_index(root, entries)
+    for message in messages:
+        print(message)

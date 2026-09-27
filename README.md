@@ -18,6 +18,7 @@ Most people use Git without ever thinking about what's actually happening under 
 | `add <file>...` | Stages one or more files for the next commit. Re-adding a changed file replaces its staged version; adding a tracked file that was deleted stages its removal. If any file can't be added, nothing is staged |
 | `commit -m "message"` | Snapshots staged files, links to the previous commit. Refuses if nothing changed since the last commit |
 | `log` | Prints commit history, oldest to newest |
+| `checkout <commit> [<file>...]` | Restores files from a commit and stages them. With no files, restores the whole snapshot. See [Restoring files](#restoring-files) |
 
 Like Git, commands work from any subfolder of the repository, and errors (such as a missing file or running outside a repository) print a message and exit with status 1.
 
@@ -67,6 +68,23 @@ minigit log
 
 If you're changing minigit itself, install it with `python -m pip install -e ".[test]"` instead, so your edits take effect without reinstalling and pytest is installed too.
 
+## Restoring files
+
+`checkout` takes a commit hash from `log` (the first 4 or more characters are enough) or `HEAD` for the latest commit.
+
+```bash
+minigit checkout HEAD notes.txt          # bring back a deleted or edited file
+minigit checkout 3f2a9c1 notes.txt       # restore an older version of one file
+minigit checkout 3f2a9c1                 # restore the whole snapshot from that commit
+minigit commit -m "restore 3f2a9c1"      # record the restored files as a new commit
+```
+
+- Restored files are written to the working folder and staged, so the next `commit` records them.
+- `HEAD` doesn't move. minigit has no branches, so moving `HEAD` back would hide every later commit from `log`; instead, committing after a checkout adds a new commit that brings the old content back, and the full history stays intact.
+- Restoring a whole snapshot stages exactly that snapshot. Tracked files that weren't in it stay on disk but are unstaged, so they won't be in the next commit.
+- Files with changes that haven't been staged are never overwritten: `checkout` stops and lists them. Stage them with `add` to keep the changes, or pass `--force` to discard them.
+- Every object is read and checked before any file is written, so a missing or corrupt object, or a folder in the way, leaves your files untouched. Paths that would write outside the repository are refused.
+
 ## Verified against real Git
 
 ```bash
@@ -82,7 +100,7 @@ python -m pip install -e ".[test]"
 python -m pytest
 ```
 
-The tests in `tests/` cover every command, including staging and re-staging files, adding several files at once, staged removals, file names that differ only in case, Unicode file names, corrupt objects, subfolders, refusing empty commits, identical tree hashes regardless of the order files were added, `log` output, error messages and exit codes, and repositories created by earlier versions. GitHub Actions runs them on Linux, Windows and macOS with Python 3.10 and 3.14 for every pull request and every push to `main`.
+The tests in `tests/` cover every command, including staging and re-staging files, adding several files at once, staged removals, file names that differ only in case, Unicode file names, corrupt objects, subfolders, refusing empty commits, restoring single files and whole snapshots with `checkout` (including protecting unstaged changes and refusing unsafe paths), identical tree hashes regardless of the order files were added, `log` output, error messages and exit codes, and repositories created by earlier versions. GitHub Actions runs them on Linux, Windows and macOS with Python 3.10 and 3.14 for every pull request and every push to `main`.
 
 ## Project history
 
@@ -98,7 +116,7 @@ Built incrementally, with each stage tagged and pushed as its own milestone:
 ## What I'd build next
 
 - `status` — show staged vs. unstaged changes
-- Branching and `checkout`
+- Branches, so `checkout` can move between lines of history
 - A real line-by-line `diff`
 - zlib compression, to match Git's on-disk format byte-for-byte
 
