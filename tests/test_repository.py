@@ -3,6 +3,7 @@ import subprocess
 
 import pytest
 
+from minigit_pkg import repository
 from minigit_pkg.objects import hash_object
 from minigit_pkg.repository import read_head, read_index
 
@@ -237,17 +238,21 @@ def test_log_with_no_commits(repo, run):
     assert run("log") == (0, "No commits yet.\n")
 
 
-def test_log_prints_oldest_first(repo, run):
+def test_log_prints_oldest_first(repo, run, monkeypatch):
+    monkeypatch.setenv("MINIGIT_AUTHOR_NAME", "Ada Lovelace")
+    monkeypatch.setenv("MINIGIT_AUTHOR_EMAIL", "ada@example.com")
+    monkeypatch.setattr(repository, "author_timestamp", lambda: "1700000000 +0530")
     hashes = []
     for i, message in enumerate(["first", "second\nwith detail", "third"]):
         (repo / "a.txt").write_text(f"{i}\n")
         run("add", "a.txt")
         run("commit", "-m", message)
         hashes.append(read_head(str(repo)))
+    header = "Author: Ada Lovelace <ada@example.com>\nDate:   Wed Nov 15 03:43:20 2023 +0530\n\n"
     assert run("log") == (0, (
-        f"commit {hashes[0]}\n    first\n\n"
-        f"commit {hashes[1]}\n    second\n    with detail\n\n"
-        f"commit {hashes[2]}\n    third\n\n"
+        f"commit {hashes[0]}\n{header}    first\n\n"
+        f"commit {hashes[1]}\n{header}    second\n    with detail\n\n"
+        f"commit {hashes[2]}\n{header}    third\n\n"
     ))
 
 
