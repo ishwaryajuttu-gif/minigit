@@ -22,7 +22,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: Install pytest
-        run: python -m pip install pytest
+      - name: Install minigit and pytest
+        run: python -m pip install ".[test]"
       - name: Run tests
         run: python -m pytest -v
+      - name: Check the installed minigit command
+        shell: bash
+        run: |
+          set -e
+          cd "$(mktemp -d)"
+          minigit init
+          printf 'hello world\n' > file.txt
+          minigit add file.txt
+          test "$(cut -d' ' -f2 .minigit/index)" = "$(git hash-object --no-filters file.txt)"
+          minigit commit -m "first commit"
+          minigit log | grep -q "first commit"
+          if minigit commit -m "no changes"; then exit 1; fi
