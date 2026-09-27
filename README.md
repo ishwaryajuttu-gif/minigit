@@ -69,6 +69,8 @@ minigit commit -m "first commit"
 minigit log
 ```
 
+Run `minigit --help` to list the commands, or `minigit <command> --help` (for example `minigit checkout --help`) for details on one. `python -m minigit_pkg <command>` works the same as `minigit <command>`, which is handy if the `minigit` command isn't on your `PATH`.
+
 ### Setting your name
 
 Each commit records who made it. Set your name and email once for all your repositories:
@@ -124,7 +126,7 @@ python -m pip install -e ".[test]"
 python -m pytest
 ```
 
-The tests in `tests/` cover every command, including staging and re-staging files, adding several files at once, staged removals, file names that differ only in case, Unicode file names, corrupt objects, subfolders, refusing empty commits, recording and showing commit authors and dates, `config` settings, restoring single files and whole snapshots with `checkout` (including protecting unstaged changes and refusing unsafe paths), identical tree hashes regardless of the order files were added, `log` output, error messages and exit codes, and repositories created by earlier versions. GitHub Actions runs them on Linux, Windows and macOS with Python 3.10 and 3.14 for every pull request and every push to `main`.
+The tests in `tests/` cover every command, including staging and re-staging files, adding several files at once, staged removals, file names that differ only in case, Unicode file names, corrupt objects, subfolders, refusing empty commits, recording and showing commit authors and dates, `config` settings, `--help` and `python -m minigit_pkg`, restoring single files and whole snapshots with `checkout` (including protecting unstaged changes and refusing unsafe paths), identical tree hashes regardless of the order files were added, `log` output, error messages and exit codes, and repositories created by earlier versions. GitHub Actions runs them on Linux, Windows and macOS with Python 3.10 and 3.14 for every pull request and every push to `main`.
 
 ## Project history
 

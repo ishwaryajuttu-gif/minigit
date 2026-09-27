@@ -31,6 +31,8 @@ jobs:
         run: |
           set -e
           cd "$(mktemp -d)"
+          minigit --help | grep -q "^Commands:"
+          python -m minigit_pkg --help | grep -q "^Commands:"
           minigit init
           printf 'hello world\n' > file.txt
           minigit add file.txt
