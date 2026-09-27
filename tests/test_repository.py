@@ -70,7 +70,7 @@ def test_adding_deleted_file_stages_removal(repo, run):
 @pytest.mark.parametrize("path, message", [
     ("missing.txt", "file not found: missing.txt"),
     (".", "not a file: ."),
-    (".minigit/index", "cannot add files inside .minigit"),
+    (".minigit/index", "cannot use files inside .minigit"),
 ])
 def test_add_errors(repo, run, path, message):
     assert run("add", path) == (1, f"Error: {message}\n")
