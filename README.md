@@ -130,7 +130,7 @@ The tests in `tests/` cover every command, including staging and re-staging file
 
 ## Project history
 
-Built incrementally, with each stage tagged and pushed as its own milestone:
+Built incrementally, with each stage tagged and pushed as its own milestone (full details in [CHANGELOG.md](CHANGELOG.md)):
 
 - `v0.1` — content-addressed blob storage, hash-matched against real Git
 - `v0.2` — `init` + `add`, staging persisted to disk
@@ -141,7 +141,7 @@ Built incrementally, with each stage tagged and pushed as its own milestone:
 - `v1.1.0` — `checkout` to restore files, and commit authors and dates with `config`
 - `v1.1.1` — `--help` for every command, and `python -m minigit_pkg` *(current)*
 
-## What I'd build next
+## What I'd build next (status in [docs/PROGRESS.md](docs/PROGRESS.md))
 
 - `status` — show staged vs. unstaged changes
 - Branches, so `checkout` can move between lines of history
@@ -151,6 +151,10 @@ Built incrementally, with each stage tagged and pushed as its own milestone:
 ## Tech
 
 Python, `hashlib` (SHA-1), no external dependencies. Tests use `pytest`.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
